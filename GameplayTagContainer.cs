@@ -168,9 +168,14 @@ namespace GameplayTag
             var result = new GameplayTagContainer();
             foreach (var tag in tags)
             {
-                if (filter.HasTag(tag))
+                // Check if this tag matches any tag in the filter
+                foreach (var filterTag in filter.GetTags())
                 {
-                    result.AddTag(tag);
+                    if (filterTag.MatchesTag(tag))
+                    {
+                        result.AddTag(tag);
+                        break;
+                    }
                 }
             }
             

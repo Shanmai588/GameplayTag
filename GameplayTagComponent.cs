@@ -22,13 +22,16 @@ namespace GameplayTag
                     tagContainer = new GameplayTagContainer();
                 }
 
-                // Convert string tags to GameplayTag objects
-                foreach (var tagName in initialTagNames)
+                if (initialTagNames != null)
                 {
-                    var tag = GameplayTagManager.Instance.RequestGameplayTag(tagName);
-                    if (tag != null)
+                    // Convert string tags to GameplayTag objects
+                    foreach (var tagName in initialTagNames)
                     {
-                        tagContainer.AddTag(tag);
+                        var tag = GameplayTagManager.Instance.RequestGameplayTag(tagName);
+                        if (tag != null)
+                        {
+                            tagContainer.AddTag(tag);
+                        }
                     }
                 }
             }
