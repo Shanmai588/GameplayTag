@@ -113,7 +113,7 @@ namespace GameplayTag
 
         public void LoadTagsFromAsset(GameplayTagAsset asset)
         {
-            if (asset == null || asset.tagDefinitions == null) return;
+            if (!asset || asset.tagDefinitions == null) return;
             
             foreach (var tagData in asset.tagDefinitions)
             {
