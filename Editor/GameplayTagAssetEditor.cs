@@ -1,6 +1,7 @@
 #if UNITY_EDITOR
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using UnityEngine;
 using UnityEditor;
@@ -9,513 +10,608 @@ using UnityEngine.UIElements;
 
 namespace GameplayTag.Editor
 {
-    /// <summary>
-    /// Custom editor for GameplayTagAsset with hierarchical tree view using UI Toolkit
-    /// </summary>
     [CustomEditor(typeof(GameplayTagAsset))]
     public class GameplayTagAssetEditor : UnityEditor.Editor
     {
+        // USS Class Names (Add new ones as needed)
+        private const string ScrollViewName = "tree-scroll-view";
+        private const string TreeItemClassName = "tree-item";
+        private const string TreeItemRowClassName = "tree-item-row";
+        // private const string ArrowContainerClassName = "tree-item-arrow-container"; // No longer a separate container
+        private const string ArrowClassName = "tree-item-arrow"; // Now directly in tagContainer
+        private const string TagContainerClassName = "tree-item-tag-container";
+        private const string TagContainerImplicitClassName = "tree-item-tag-container-implicit";
+        private const string TagNameLabelClassName = "tree-item-tag-name";
+        private const string TagNameLabelImplicitClassName = "tree-item-tag-name-implicit";
+        private const string RenameTextFieldClassName = "tree-item-rename-field"; // For the rename input
+        private const string ActionsContainerClassName = "tree-item-actions-container";
+        private const string ActionButtonClassName = "tree-item-action-button";
+        private const string ActionButtonAddClassName = "action-button-add";
+        private const string ActionButtonEditClassName = "action-button-edit";
+        private const string ActionButtonDeleteClassName = "action-button-delete";
+        private const string ActionButtonCreateClassName = "action-button-create";
+        private const string ChildrenContainerClassName = "children-container";
+        private const string EmptyStateLabelClassName = "empty-state-label";
+
         private VisualElement rootVisualElement;
-        private SerializedProperty tagDefinitionsProperty;
+        private ScrollView treeScrollView;
+        private TextField searchField;
+
         private Dictionary<string, bool> expandedStates = new Dictionary<string, bool>();
         private string searchFilter = "";
 
-        private void OnEnable()
-        {
-            tagDefinitionsProperty = serializedObject.FindProperty("tagDefinitions");
-        }
+        // Rename state
+        private TagNode _nodeBeingRenamed;
+        private TextField _activeRenameField;
+        private Label _activeRenameLabel;
+        private VisualElement _activeRenameActionsContainer;
+        private bool _isCommittingRenameOrCancelling = false;
 
+
+        public void OnEnable()
+        {
+            // Ensure rename state is clear if assembly reloads
+            ClearRenameState();
+        }
+        
         public override VisualElement CreateInspectorGUI()
         {
-            rootVisualElement = new VisualElement();
+            rootVisualElement = new VisualElement { style = { flexGrow = 1 } };
+
+            var scriptAsset = MonoScript.FromScriptableObject(this);
+            var scriptPath = AssetDatabase.GetAssetPath(scriptAsset);
+            var scriptDirectory = Path.GetDirectoryName(scriptPath);
+            var styleSheetPath = Path.Combine(scriptDirectory, "GameplayTagAssetEditor.uss");
+            var styleSheet = AssetDatabase.LoadAssetAtPath<StyleSheet>(styleSheetPath);
+
+            if (styleSheet != null) rootVisualElement.styleSheets.Add(styleSheet);
+            else Debug.LogWarning($"[GameplayTagAssetEditor] Stylesheet not found at {styleSheetPath}.");
             
-            // Add USS styling
-            var styleSheet = AssetDatabase.LoadAssetAtPath<StyleSheet>("Packages/com.unity.ui/PackageResources/StyleSheets/Default.uss");
-            if (styleSheet != null)
-                rootVisualElement.styleSheets.Add(styleSheet);
-            
-            // Create toolbar
             var toolbar = new Toolbar();
-            toolbar.style.height = 25;
-            
-            var titleLabel = new Label("Gameplay Tag Hierarchy");
-            titleLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
-            titleLabel.style.marginLeft = 5;
-            titleLabel.style.unityTextAlign = TextAnchor.MiddleLeft;
+            var titleLabel = new Label("Gameplay Tag Hierarchy") { style = { unityFontStyleAndWeight = FontStyle.Bold, marginLeft = 5, unityTextAlign = TextAnchor.MiddleLeft } };
             toolbar.Add(titleLabel);
-            
             toolbar.Add(new ToolbarSpacer() { style = { flexGrow = 1 } });
-            
-            var addRootButton = new ToolbarButton(() => ShowAddTagWindow("")) { text = "Add Root Tag" };
-            toolbar.Add(addRootButton);
-            
-            var expandAllButton = new ToolbarButton(() => ExpandCollapseAll(true)) { text = "Expand All" };
-            toolbar.Add(expandAllButton);
-            
-            var collapseAllButton = new ToolbarButton(() => ExpandCollapseAll(false)) { text = "Collapse All" };
-            toolbar.Add(collapseAllButton);
-            
+            toolbar.Add(new ToolbarButton(() => ShowAddTagWindow("")) { text = "Add Root Tag" });
+            toolbar.Add(new ToolbarButton(() => ExpandCollapseAll(true)) { text = "Expand All" });
+            toolbar.Add(new ToolbarButton(() => ExpandCollapseAll(false)) { text = "Collapse All" });
             rootVisualElement.Add(toolbar);
             
-            // Search field
-            var searchContainer = new VisualElement();
-            searchContainer.style.flexDirection = FlexDirection.Row;
-            searchContainer.style.marginTop = 5;
-            searchContainer.style.marginBottom = 5;
-            searchContainer.style.marginLeft = 5;
-            searchContainer.style.marginRight = 5;
-            
-            var searchLabel = new Label("Search:");
-            searchLabel.style.width = 50;
-            searchLabel.style.unityTextAlign = TextAnchor.MiddleLeft;
-            searchContainer.Add(searchLabel);
-            
-            var searchField = new TextField();
-            searchField.style.flexGrow = 1;
-            searchField.RegisterValueChangedCallback(evt =>
-            {
-                searchFilter = evt.newValue;
-                RefreshTreeView();
-            });
+            var searchContainer = new VisualElement { style = { flexDirection = FlexDirection.Row, marginTop = 5, marginBottom = 5, marginLeft = 5, marginRight = 5 } };
+            searchContainer.Add(new Label("Search:") { style = { width = 50, unityTextAlign = TextAnchor.MiddleLeft } });
+            searchField = new TextField { style = { flexGrow = 1 } };
+            searchField.RegisterValueChangedCallback(evt => { searchFilter = evt.newValue; RefreshTreeView(); });
             searchContainer.Add(searchField);
-            
             rootVisualElement.Add(searchContainer);
             
-            // Create scroll view for tree
-            var scrollView = new ScrollView();
-            scrollView.style.flexGrow = 1;
-            scrollView.style.marginTop = 5;
-            scrollView.name = "tree-scroll-view";
-            rootVisualElement.Add(scrollView);
+            treeScrollView = new ScrollView { name = ScrollViewName, style = { flexGrow = 1 } };
+            rootVisualElement.Add(treeScrollView);
             
             RefreshTreeView();
-            
             return rootVisualElement;
         }
 
         public void RefreshTreeView()
         {
-            if (rootVisualElement == null)
-                return;
-
-            var scrollView = rootVisualElement.Q<ScrollView>("tree-scroll-view");
-            scrollView.Clear();
-            
-            // Build tag hierarchy
+            if (rootVisualElement == null || treeScrollView == null) return;
+            ClearRenameState(); // Ensure rename is cancelled if a refresh happens externally
+            treeScrollView.Clear();
             var rootTags = BuildTagHierarchy();
             
-            // Create tree items
+            if (!rootTags.Any() && string.IsNullOrEmpty(searchFilter)) { ShowEmptyStateMessage(); return; }
+
+            bool foundAnyResults = false;
             foreach (var rootTag in rootTags)
             {
                 if (ShouldShowTag(rootTag))
                 {
-                    var treeItem = CreateTreeItem(rootTag, 0);
-                    scrollView.Add(treeItem);
+                    treeScrollView.Add(CreateTreeItem(rootTag, 0));
+                    foundAnyResults = true;
                 }
             }
+            if (!foundAnyResults && !string.IsNullOrEmpty(searchFilter)) ShowSearchNoResultsMessage();
+        }
+
+        private void ShowEmptyStateMessage()
+        {
+            treeScrollView.Clear();
+            var emptyLabel = new Label("No tags defined. Click 'Add Root Tag' to start.") { name = "emptyMessageLabel"};
+            emptyLabel.AddToClassList(EmptyStateLabelClassName);
+            treeScrollView.Add(emptyLabel);
+        }
+        
+        private void ShowSearchNoResultsMessage()
+        {
+            treeScrollView.Clear();
+            var noResultsLabel = new Label($"No tags found matching '{searchFilter}'.") { name = "noResultsMessageLabel" };
+            noResultsLabel.AddToClassList(EmptyStateLabelClassName);
+            treeScrollView.Add(noResultsLabel);
         }
 
         private VisualElement CreateTreeItem(TagNode node, int depth)
         {
             var itemContainer = new VisualElement();
+            itemContainer.AddToClassList(TreeItemClassName);
             
             var rowContainer = new VisualElement();
-            rowContainer.style.flexDirection = FlexDirection.Row;
+            rowContainer.AddToClassList(TreeItemRowClassName);
             rowContainer.style.marginLeft = depth * 20;
-            rowContainer.style.marginTop = 2;
-            rowContainer.style.marginBottom = 2;
-            rowContainer.style.minHeight = 22;
             
-            // Foldout arrow container
-            var arrowContainer = new VisualElement();
-            arrowContainer.style.width = 20;
-            arrowContainer.style.height = 20;
-            arrowContainer.style.justifyContent = Justify.Center;
-            arrowContainer.style.alignItems = Align.Center;
-            
-            if (node.Children.Count > 0)
-            {
-                var arrow = new Label(GetExpandedState(node.FullPath) ? "▼" : "▶");
-                arrow.style.unityTextAlign = TextAnchor.MiddleCenter;
-                arrow.style.fontSize = 10;
-                arrow.style.color = new Color(0.7f, 0.7f, 0.7f);
-                arrowContainer.Add(arrow);
-                
-                // Make arrow clickable
-                arrowContainer.RegisterCallback<MouseDownEvent>(evt =>
-                {
-                    SetExpandedState(node.FullPath, !GetExpandedState(node.FullPath));
-                    RefreshTreeView();
-                    evt.StopPropagation();
-                });
-                
-                // Hover effect
-                arrowContainer.RegisterCallback<MouseEnterEvent>(evt =>
-                {
-                    arrow.style.color = Color.white;
-                });
-                arrowContainer.RegisterCallback<MouseLeaveEvent>(evt =>
-                {
-                    arrow.style.color = new Color(0.7f, 0.7f, 0.7f);
-                });
-            }
-            
-            rowContainer.Add(arrowContainer);
-            
-            // Tag content container
             var tagContainer = new VisualElement();
-            tagContainer.style.flexDirection = FlexDirection.Row;
-            tagContainer.style.flexGrow = 1;
-            tagContainer.style.backgroundColor = node.TagData != null 
-                ? new Color(0.25f, 0.25f, 0.25f, 0.3f) 
-                : new Color(0.3f, 0.3f, 0.3f, 0.1f);
-            tagContainer.style.borderTopLeftRadius = 3;
-            tagContainer.style.borderTopRightRadius = 3;
-            tagContainer.style.borderBottomLeftRadius = 3;
-            tagContainer.style.borderBottomRightRadius = 3;
-            tagContainer.style.paddingLeft = 8;
-            tagContainer.style.paddingRight = 5;
-            tagContainer.style.paddingTop = 2;
-            tagContainer.style.paddingBottom = 2;
-            tagContainer.style.alignItems = Align.Center;
+            tagContainer.AddToClassList(TagContainerClassName);
+            if (node.TagData == null) tagContainer.AddToClassList(TagContainerImplicitClassName);
+
+            // Arrow (now part of tagContainer)
+            var arrowLabel = new Label();
+            arrowLabel.AddToClassList(ArrowClassName);
+            if (node.Children.Count > 0) arrowLabel.text = GetExpandedState(node.FullPath) ? "▼" : "▶";
+            else arrowLabel.style.visibility = Visibility.Hidden; // Hide arrow if no children
+            tagContainer.Add(arrowLabel);
             
             // Tag name label
             var tagNameLabel = new Label(node.TagName);
-            tagNameLabel.style.flexGrow = 1;
-            tagNameLabel.style.unityFontStyleAndWeight = node.TagData != null ? FontStyle.Normal : FontStyle.Italic;
-            tagNameLabel.style.color = node.TagData != null ? Color.white : new Color(0.7f, 0.7f, 0.7f);
-            tagNameLabel.style.unityTextAlign = TextAnchor.MiddleLeft;
+            tagNameLabel.AddToClassList(TagNameLabelClassName);
+            if (node.TagData == null) tagNameLabel.AddToClassList(TagNameLabelImplicitClassName);
+            if (!string.IsNullOrEmpty(searchFilter) && node.TagName.IndexOf(searchFilter, StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                tagNameLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
+            }
             tagContainer.Add(tagNameLabel);
+
+            // Rename TextField (initially hidden)
+            var renameField = new TextField { name = "rename-field" }; // Name for event target checks
+            renameField.AddToClassList(RenameTextFieldClassName);
+            renameField.style.display = DisplayStyle.None; // Hidden by default
+            tagContainer.Add(renameField);
             
-            // Full path tooltip
-            tagContainer.tooltip = $"Full Path: {node.FullPath}";
+            tagContainer.tooltip = $"Full Path: {node.FullPath}\n{(node.TagData != null ? ("Desc: " + node.TagData.description) : "(Implicit parent)")}";
             
             // Action buttons container
             var actionsContainer = new VisualElement();
-            actionsContainer.style.flexDirection = FlexDirection.Row;
-            actionsContainer.style.marginLeft = 10;
-            
-            // Add child button
-            var addChildButton = CreateActionButton("+", new Color(0.3f, 0.7f, 0.3f), 
-                () => ShowAddTagWindow(node.FullPath));
-            addChildButton.tooltip = "Add child tag";
+            actionsContainer.AddToClassList(ActionsContainerClassName);
+            var addChildButton = CreateActionButton("+", () => ShowAddTagWindow(node.FullPath), "Add child tag", ActionButtonAddClassName);
             actionsContainer.Add(addChildButton);
-            
             if (node.TagData != null)
             {
-                // Edit button
-                var editButton = CreateActionButton("✎", new Color(0.5f, 0.5f, 0.7f), 
-                    () => ShowEditTagWindow(node));
-                editButton.tooltip = "Edit tag properties";
+                var editButton = CreateActionButton("✎", () => ShowEditTagWindow(node), "Edit tag properties", ActionButtonEditClassName);
                 actionsContainer.Add(editButton);
-                
-                // Delete button
-                var deleteButton = CreateActionButton("×", new Color(0.7f, 0.3f, 0.3f), 
-                    () => DeleteTag(node));
-                deleteButton.tooltip = "Delete tag";
+                var deleteButton = CreateActionButton("×", () => DeleteTag(node), "Delete tag", ActionButtonDeleteClassName);
                 actionsContainer.Add(deleteButton);
             }
             else
             {
-                // Create tag button for non-existent parent tags
-                var createButton = CreateActionButton("✓", new Color(0.3f, 0.5f, 0.7f), 
-                    () => CreateTagAtPath(node.FullPath));
-                createButton.tooltip = "Create this tag";
+                var createButton = CreateActionButton("✓", () => CreateTagAtPath(node.FullPath), "Create this tag", ActionButtonCreateClassName);
                 actionsContainer.Add(createButton);
             }
-            
             tagContainer.Add(actionsContainer);
             rowContainer.Add(tagContainer);
+
+            // Event Handling for Expand/Collapse on Tag Container
+            tagContainer.RegisterCallback<MouseDownEvent>(evt =>
+            {
+                // Prevent toggle if click is on an action button, or the active rename field
+                if (evt.target is Button || 
+                    (_nodeBeingRenamed == node && (evt.target == _activeRenameField || _activeRenameField.Contains(evt.target as VisualElement))))
+                {
+                    return; 
+                }
+                if (node.Children.Count > 0)
+                {
+                    SetExpandedState(node.FullPath, !GetExpandedState(node.FullPath));
+                    RefreshTreeView();
+                }
+            });
+
+            // Event Handling for Rename (Double Click on Label)
+            tagNameLabel.RegisterCallback<MouseDownEvent>(evt =>
+            {
+                if (evt.clickCount == 2 && node.TagData != null) // Only allow renaming explicit tags
+                {
+                    StartRename(node, tagNameLabel, renameField, actionsContainer);
+                    evt.StopPropagation();
+                }
+            });
+
+            // Context Menu
+            rowContainer.AddManipulator(new ContextualMenuManipulator(evt =>
+            {
+                if (_nodeBeingRenamed != null) return; // Don't show context menu during rename
+
+                evt.menu.AppendAction($"Add Child to '{node.TagName}'", (a) => ShowAddTagWindow(node.FullPath));
+                if (node.TagData != null)
+                {
+                    evt.menu.AppendAction($"Rename '{node.TagName}'", (a) => StartRename(node, tagNameLabel, renameField, actionsContainer), 
+                        node.TagData != null ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled); // Only explicit
+                    evt.menu.AppendAction($"Edit '{node.TagName}'", (a) => ShowEditTagWindow(node));
+                    evt.menu.AppendAction($"Delete '{node.TagName}'...", (a) => DeleteTag(node));
+                }
+                else
+                {
+                    evt.menu.AppendAction($"Create Tag '{node.FullPath}'", (a) => CreateTagAtPath(node.FullPath));
+                }
+                evt.menu.AppendSeparator();
+                evt.menu.AppendAction("Expand All Children", (a) => ExpandCollapseNodeAndChildren(node, true), 
+                    node.Children.Any() ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
+                evt.menu.AppendAction("Collapse All Children", (a) => ExpandCollapseNodeAndChildren(node, false),
+                    node.Children.Any() && GetExpandedState(node.FullPath) ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
+            }));
+
             itemContainer.Add(rowContainer);
             
-            // Add children if expanded
             if (GetExpandedState(node.FullPath) && node.Children.Count > 0)
             {
                 var childrenContainer = new VisualElement();
-                
+                childrenContainer.AddToClassList(ChildrenContainerClassName);
                 foreach (var child in node.Children.OrderBy(c => c.TagName))
                 {
                     if (ShouldShowTag(child))
                     {
-                        var childItem = CreateTreeItem(child, depth + 1);
-                        childrenContainer.Add(childItem);
+                        childrenContainer.Add(CreateTreeItem(child, depth + 1));
                     }
                 }
-                
-                itemContainer.Add(childrenContainer);
+                if (childrenContainer.childCount > 0) itemContainer.Add(childrenContainer);
             }
-            
             return itemContainer;
         }
 
-        private Button CreateActionButton(string text, Color backgroundColor, Action onClick)
+        private Button CreateActionButton(string text, Action onClick, string tooltip, string extraClass = null)
         {
-            var button = new Button(onClick) { text = text };
-            button.style.width = 22;
-            button.style.height = 18;
-            button.style.marginLeft = 2;
-            button.style.fontSize = 12;
-            button.style.backgroundColor = backgroundColor;
-            button.style.borderTopLeftRadius = 2;
-            button.style.borderTopRightRadius = 2;
-            button.style.borderBottomLeftRadius = 2;
-            button.style.borderBottomRightRadius = 2;
-            button.style.paddingLeft = 0;
-            button.style.paddingRight = 0;
-            button.style.paddingTop = 0;
-            button.style.paddingBottom = 0;
-            
-            // Hover effect
-            button.RegisterCallback<MouseEnterEvent>(evt =>
-            {
-                button.style.backgroundColor = backgroundColor * 1.2f;
-            });
-            button.RegisterCallback<MouseLeaveEvent>(evt =>
-            {
-                button.style.backgroundColor = backgroundColor;
-            });
-            
+            var button = new Button(onClick) { text = text, tooltip = tooltip };
+            button.AddToClassList(ActionButtonClassName);
+            if (!string.IsNullOrEmpty(extraClass)) button.AddToClassList(extraClass);
             return button;
         }
 
-        private bool GetExpandedState(string path)
+        private bool GetExpandedState(string path) => expandedStates.TryGetValue(path, out bool expanded) && expanded;
+        private void SetExpandedState(string path, bool expanded) => expandedStates[path] = expanded;
+        
+        private void ExpandCollapseNodeAndChildren(TagNode startNode, bool expand)
         {
-            return expandedStates.TryGetValue(path, out bool expanded) ? expanded : false;
-        }
-
-        private void SetExpandedState(string path, bool expanded)
-        {
-            expandedStates[path] = expanded;
+            SetExpandedState(startNode.FullPath, expand);
+            foreach (var child in startNode.Children) ExpandCollapseNodeAndChildren(child, expand);
+            if (startNode.Children.Any()) RefreshTreeView();
         }
 
         private List<TagNode> BuildTagHierarchy()
         {
             var rootNodes = new Dictionary<string, TagNode>();
             var allNodes = new Dictionary<string, TagNode>();
-            
-            // First, create all nodes from existing tags
             var asset = target as GameplayTagAsset;
-            if (asset.tagDefinitions != null)
+            if (asset?.tagDefinitions == null) return new List<TagNode>();
+
+            var sortedDefinitions = asset.tagDefinitions
+                .Where(td => td != null && !string.IsNullOrEmpty(td.tagName))
+                .OrderBy(td => td.tagName.Count(c => c == '.')).ThenBy(td => td.tagName)
+                .ToList();
+
+            foreach (var tagData in sortedDefinitions)
             {
-                foreach (var tagData in asset.tagDefinitions)
+                var parts = tagData.tagName.Split('.');
+                TagNode parentNode = null; string currentPath = "";
+                for (int i = 0; i < parts.Length; i++)
                 {
-                    if (tagData == null || string.IsNullOrEmpty(tagData.tagName))
-                        continue;
-                    
-                    var parts = tagData.tagName.Split('.');
-                    var currentPath = "";
-                    
-                    for (int i = 0; i < parts.Length; i++)
+                    string segment = parts[i];
+                    currentPath = (i == 0) ? segment : currentPath + "." + segment;
+                    if (!allNodes.TryGetValue(currentPath, out TagNode currentNode))
                     {
-                        currentPath = i == 0 ? parts[i] : currentPath + "." + parts[i];
-                        
-                        if (!allNodes.ContainsKey(currentPath))
-                        {
-                            var node = new TagNode
-                            {
-                                TagName = parts[i],
-                                FullPath = currentPath,
-                                TagData = currentPath == tagData.tagName ? tagData : null
-                            };
-                            
-                            allNodes[currentPath] = node;
-                            
-                            if (i == 0)
-                            {
-                                rootNodes[parts[i]] = node;
-                            }
-                        }
-                        else if (currentPath == tagData.tagName)
-                        {
-                            allNodes[currentPath].TagData = tagData;
-                        }
+                        currentNode = new TagNode { TagName = segment, FullPath = currentPath, };
+                        allNodes[currentPath] = currentNode;
+                        if (parentNode == null) { if (!rootNodes.ContainsKey(segment)) rootNodes[segment] = currentNode; }
+                        else { if (!parentNode.Children.Contains(currentNode)) parentNode.Children.Add(currentNode); currentNode.Parent = parentNode; }
                     }
+                    if (currentPath == tagData.tagName) currentNode.TagData = tagData;
+                    parentNode = currentNode;
                 }
             }
-            
-            // Then, establish parent-child relationships
-            foreach (var kvp in allNodes)
-            {
-                var node = kvp.Value;
-                var lastDotIndex = node.FullPath.LastIndexOf('.');
-                
-                if (lastDotIndex > 0)
-                {
-                    var parentPath = node.FullPath.Substring(0, lastDotIndex);
-                    if (allNodes.TryGetValue(parentPath, out var parentNode))
-                    {
-                        parentNode.Children.Add(node);
-                        node.Parent = parentNode;
-                    }
-                }
-            }
-            
             return rootNodes.Values.OrderBy(n => n.TagName).ToList();
         }
 
         private bool ShouldShowTag(TagNode node)
         {
-            if (string.IsNullOrEmpty(searchFilter))
-                return true;
-            
-            // Check if this node or any of its children match the search
-            return node.FullPath.IndexOf(searchFilter, StringComparison.OrdinalIgnoreCase) >= 0 ||
-                   node.Children.Any(child => ShouldShowTag(child));
+            if (string.IsNullOrEmpty(searchFilter)) return true;
+            if (node.FullPath.IndexOf(searchFilter, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return node.Children.Any(child => ShouldShowTag(child));
         }
 
         private void ShowAddTagWindow(string parentPath)
         {
-            var window = EditorWindow.GetWindow<AddTagWindow>(true, "Add New Tag", true);
-            window.Initialize(this, parentPath);
-            window.ShowModal();
+            if (_nodeBeingRenamed != null) CancelRename(); // Cancel rename if active
+            // Call the static ShowWindow method which handles Init
+            AddTagWindow.ShowWindow(this, parentPath);
         }
 
         private void ShowEditTagWindow(TagNode node)
         {
+            if (_nodeBeingRenamed != null) CancelRename(); // Cancel rename if active
             EditTagWindow.ShowWindow(this, node.TagData);
         }
 
         private void CreateTagAtPath(string path)
         {
+            if (_nodeBeingRenamed != null) CancelRename();
             serializedObject.Update();
-            
             var asset = target as GameplayTagAsset;
-            var newTag = new GameplayTagData
-            {
-                tagName = path,
-                description = "",
-                category = "",
-                isNetworked = false,
-                debugColor = Color.white
-            };
-            
-            var list = new List<GameplayTagData>(asset.tagDefinitions ?? new GameplayTagData[0]);
+            var newTag = new GameplayTagData { tagName = path, description = "Newly created implicit tag", debugColor = Color.grey };
+            var list = new List<GameplayTagData>(asset.tagDefinitions ?? Array.Empty<GameplayTagData>());
+            if (list.Any(t => t.tagName == path)) { EditorUtility.DisplayDialog("Tag Exists", $"Tag '{path}' already exists.", "OK"); return; }
             list.Add(newTag);
             asset.tagDefinitions = list.ToArray();
-            
             EditorUtility.SetDirty(target);
             serializedObject.ApplyModifiedProperties();
+            AssetDatabase.SaveAssets();
             RefreshTreeView();
         }
 
-        private void DeleteTag(TagNode node)
+        // --- RENAME LOGIC ---
+        private void StartRename(TagNode node, Label nameLabel, TextField renameField, VisualElement actionsContainer)
         {
-            // Check if this tag has children
-            bool hasChildren = HasChildTags(node);
-            
-            if (hasChildren)
+            if (_nodeBeingRenamed != null) CancelRename(); // Cancel any previous rename
+            if (node.TagData == null) return; // Should not happen if called from valid context
+
+            _isCommittingRenameOrCancelling = false;
+            _nodeBeingRenamed = node;
+            _activeRenameLabel = nameLabel;
+            _activeRenameField = renameField;
+            _activeRenameActionsContainer = actionsContainer;
+
+            _activeRenameLabel.style.display = DisplayStyle.None;
+            _activeRenameActionsContainer.style.display = DisplayStyle.None; // Hide actions too
+
+            _activeRenameField.value = node.TagName;
+            _activeRenameField.style.display = DisplayStyle.Flex;
+            _activeRenameField.Focus();
+            _activeRenameField.SelectAll();
+
+            _activeRenameField.RegisterCallback<FocusOutEvent>(OnRenameFieldFocusOut);
+            _activeRenameField.RegisterCallback<KeyDownEvent>(OnRenameFieldKeyDown);
+        }
+
+        private void OnRenameFieldFocusOut(FocusOutEvent evt)
+        {
+            if (_nodeBeingRenamed != null && !_isCommittingRenameOrCancelling)
             {
-                // Show options dialog
-                int option = EditorUtility.DisplayDialogComplex(
-                    "Delete Parent Tag",
-                    $"The tag '{node.FullPath}' has child tags. What would you like to do?",
-                    "Delete All", // Option 0
-                    "Cancel",     // Option 1
-                    "Move Children Up" // Option 2
-                );
-                
-                if (option == 1) // Cancel
-                    return;
-                
-                serializedObject.Update();
-                var asset = target as GameplayTagAsset;
-                var list = new List<GameplayTagData>(asset.tagDefinitions);
-                
-                if (option == 0) // Delete all
+                AttemptCommitRename();
+            }
+        }
+
+        private void OnRenameFieldKeyDown(KeyDownEvent evt)
+        {
+            if (_nodeBeingRenamed == null) return;
+            if (evt.keyCode == KeyCode.Escape)
+            {
+                CancelRename();
+                evt.StopPropagation();
+            }
+            else if (evt.keyCode == KeyCode.Return || evt.keyCode == KeyCode.KeypadEnter)
+            {
+                AttemptCommitRename();
+                evt.StopPropagation();
+            }
+        }
+        
+        private void AttemptCommitRename()
+        {
+            if (_isCommittingRenameOrCancelling) return; // Prevent re-entry
+
+            _isCommittingRenameOrCancelling = true;
+            string newSegmentName = _activeRenameField.value;
+            TagNode nodeToRename = _nodeBeingRenamed; // Capture before ClearRenameState
+
+            // Perform validation and actual rename logic
+            if (string.IsNullOrWhiteSpace(newSegmentName) || newSegmentName == nodeToRename.TagName)
+            {
+                CancelRename(); // No change or empty, just cancel
+                return;
+            }
+
+            if (!GameplayTagManager.Instance.IsValidTagName(newSegmentName, false)) // false for segment validation
+            {
+                EditorUtility.DisplayDialog("Invalid Tag Name", "New tag name contains invalid characters (e.g., '.'). Use only letters, numbers, and underscores for a segment.", "OK");
+                // Don't cancel UI yet, let user correct it or press Esc.
+                _isCommittingRenameOrCancelling = false; // Allow further interaction
+                _activeRenameField.Focus(); // Refocus
+                return;
+            }
+
+            string parentFullPath = nodeToRename.Parent?.FullPath;
+            var siblings = nodeToRename.Parent == null ? BuildTagHierarchy().Where(n => n != nodeToRename) : nodeToRename.Parent.Children.Where(n => n != nodeToRename);
+            if (siblings.Any(s => s.TagName.Equals(newSegmentName, StringComparison.OrdinalIgnoreCase)))
+            {
+                EditorUtility.DisplayDialog("Duplicate Tag Name", $"A tag with the name '{newSegmentName}' already exists at this level.", "OK");
+                _isCommittingRenameOrCancelling = false;
+                _activeRenameField.Focus();
+                return;
+            }
+
+            // All checks passed, proceed with rename
+            CommitRename(nodeToRename, newSegmentName);
+            // ClearRenameState is called by CommitRename/CancelRename
+        }
+
+
+        private void CommitRename(TagNode nodeToRename, string newSegmentName)
+        {
+            string oldOwnFullPath = nodeToRename.FullPath;
+            string parentFullPath = nodeToRename.Parent?.FullPath;
+            string newOwnFullPath = string.IsNullOrEmpty(parentFullPath) ? newSegmentName : $"{parentFullPath}.{newSegmentName}";
+
+            serializedObject.Update();
+            var asset = target as GameplayTagAsset;
+            var definitions = new List<GameplayTagData>(asset.tagDefinitions);
+            bool changed = false;
+
+            for (int i = 0; i < definitions.Count; i++)
+            {
+                var tagData = definitions[i];
+                if (tagData.tagName == oldOwnFullPath)
                 {
-                    // Remove this tag and all children
-                    list.RemoveAll(t => t.tagName == node.FullPath || t.tagName.StartsWith(node.FullPath + "."));
+                    tagData.tagName = newOwnFullPath;
+                    changed = true;
                 }
-                else if (option == 2) // Move children up
+                else if (tagData.tagName.StartsWith(oldOwnFullPath + "."))
                 {
-                    // First, update all child tags to remove this level
-                    var tagToRemove = node.FullPath + ".";
-                    var parentPrefix = "";
-                    
-                    // Determine the new parent prefix
-                    var lastDot = node.FullPath.LastIndexOf('.');
-                    if (lastDot > 0)
-                    {
-                        parentPrefix = node.FullPath.Substring(0, lastDot) + ".";
-                    }
-                    
-                    // Update child tags
-                    foreach (var tag in list)
-                    {
-                        if (tag.tagName.StartsWith(tagToRemove))
-                        {
-                            // Remove the deleted tag level from the path
-                            var remainingPath = tag.tagName.Substring(tagToRemove.Length);
-                            tag.tagName = parentPrefix + remainingPath;
-                            
-                            // If we're at root level, just use the remaining path
-                            if (string.IsNullOrEmpty(parentPrefix))
-                            {
-                                tag.tagName = remainingPath;
-                            }
-                        }
-                    }
-                    
-                    // Then remove the parent tag
-                    list.RemoveAll(t => t.tagName == node.FullPath);
+                    string restOfPath = tagData.tagName.Substring(oldOwnFullPath.Length); // Includes leading '.'
+                    tagData.tagName = newOwnFullPath + restOfPath;
+                    changed = true;
                 }
-                
-                asset.tagDefinitions = list.ToArray();
+            }
+
+            if (changed)
+            {
+                asset.tagDefinitions = definitions.ToArray();
                 EditorUtility.SetDirty(target);
                 serializedObject.ApplyModifiedProperties();
-                RefreshTreeView();
+                AssetDatabase.SaveAssets();
+
+                // Update expandedStates
+                var newExpandedStates = new Dictionary<string, bool>();
+                foreach (var kvp in expandedStates)
+                {
+                    string newKey = kvp.Key;
+                    if (kvp.Key == oldOwnFullPath) newKey = newOwnFullPath;
+                    else if (kvp.Key.StartsWith(oldOwnFullPath + "."))
+                    {
+                        newKey = newOwnFullPath + kvp.Key.Substring(oldOwnFullPath.Length);
+                    }
+                    newExpandedStates[newKey] = kvp.Value;
+                }
+                expandedStates = newExpandedStates;
+            }
+            
+            ClearRenameState(); // Clears _nodeBeingRenamed etc.
+            if(changed) RefreshTreeView(); // Refresh to show changes
+            else CancelRenameUIOnly(); // Just revert UI if no actual data change but commit was called
+        }
+        
+        private void CancelRenameUIOnly() // Reverts UI without triggering full refresh if no data changed
+        {
+            if (_activeRenameLabel != null) _activeRenameLabel.style.display = DisplayStyle.Flex;
+            if (_activeRenameField != null) _activeRenameField.style.display = DisplayStyle.None;
+            if (_activeRenameActionsContainer != null) _activeRenameActionsContainer.style.display = DisplayStyle.Flex;
+            ClearRenameState();
+        }
+
+
+        private void CancelRename()
+        {
+            if (_nodeBeingRenamed == null && _activeRenameField == null) return; // Already cleared or never started
+
+            _isCommittingRenameOrCancelling = true; // Prevent focusOut from re-triggering commit
+            
+            if (_activeRenameLabel != null) _activeRenameLabel.style.display = DisplayStyle.Flex;
+            if (_activeRenameField != null)
+            {
+                _activeRenameField.style.display = DisplayStyle.None;
+                _activeRenameField.UnregisterCallback<FocusOutEvent>(OnRenameFieldFocusOut);
+                _activeRenameField.UnregisterCallback<KeyDownEvent>(OnRenameFieldKeyDown);
+            }
+            if (_activeRenameActionsContainer != null) _activeRenameActionsContainer.style.display = DisplayStyle.Flex; // Show actions again
+            
+            ClearRenameState();
+            _isCommittingRenameOrCancelling = false; 
+        }
+        
+        private void ClearRenameState()
+        {
+            _nodeBeingRenamed = null;
+            _activeRenameField = null;
+            _activeRenameLabel = null;
+            _activeRenameActionsContainer = null;
+        }
+
+
+        // --- DELETE LOGIC (largely unchanged but ensure rename state is cleared) ---
+        private void DeleteTag(TagNode node)
+        {
+            if (_nodeBeingRenamed != null) CancelRename();
+            // ... rest of delete logic from previous version
+            if (node.TagData == null)
+            {
+                EditorUtility.DisplayDialog("Cannot Delete", "This is an implicit parent node. It will be removed if all its children are removed.", "OK");
+                return;
+            }
+
+            bool hasChildDefinitions = HasChildTagDefinitions(node.FullPath);
+            
+            if (hasChildDefinitions)
+            {
+                int option = EditorUtility.DisplayDialogComplex(
+                    "Delete Parent Tag",
+                    $"The tag '{node.FullPath}' has child tags defined under it. What would you like to do?",
+                    "Delete Tag and All Children", 
+                    "Cancel",     
+                    "Delete Tag, Move Children Up" 
+                );
+                if (option == 1) return;
+                PerformDeleteOperation(node, option);
             }
             else
             {
-                // Simple delete for leaf tags
                 if (EditorUtility.DisplayDialog("Delete Tag", 
                     $"Are you sure you want to delete the tag '{node.FullPath}'?", 
                     "Delete", "Cancel"))
                 {
-                    serializedObject.Update();
-                    
-                    var asset = target as GameplayTagAsset;
-                    var list = new List<GameplayTagData>(asset.tagDefinitions);
-                    list.RemoveAll(t => t == node.TagData);
-                    asset.tagDefinitions = list.ToArray();
-                    
-                    EditorUtility.SetDirty(target);
-                    serializedObject.ApplyModifiedProperties();
-                    RefreshTreeView();
+                    PerformDeleteOperation(node, 0); // Default to delete self
                 }
             }
         }
-        
-        private bool HasChildTags(TagNode node)
+         private void PerformDeleteOperation(TagNode nodeToDelete, int option)
+        {
+            serializedObject.Update();
+            var asset = target as GameplayTagAsset;
+            var list = new List<GameplayTagData>(asset.tagDefinitions);
+            string fullPathToDelete = nodeToDelete.FullPath;
+
+            if (option == 0) 
+            {
+                list.RemoveAll(t => t.tagName == fullPathToDelete || t.tagName.StartsWith(fullPathToDelete + "."));
+            }
+            else if (option == 2) 
+            {
+                string parentPrefix = "";
+                var lastDotIndex = fullPathToDelete.LastIndexOf('.');
+                if (lastDotIndex > -1) parentPrefix = fullPathToDelete.Substring(0, lastDotIndex) + ".";
+                var childrenToUpdate = list.Where(t => t.tagName.StartsWith(fullPathToDelete + ".")).ToList();
+                foreach (var childTag in childrenToUpdate)
+                {
+                    string childRemainingPath = childTag.tagName.Substring((fullPathToDelete + ".").Length);
+                    childTag.tagName = parentPrefix + childRemainingPath;
+                }
+                list.RemoveAll(t => t.tagName == fullPathToDelete);
+            }
+            
+            asset.tagDefinitions = list.ToArray();
+            EditorUtility.SetDirty(target);
+            serializedObject.ApplyModifiedProperties();
+            AssetDatabase.SaveAssets(); 
+            RefreshTreeView();
+        }
+        private bool HasChildTagDefinitions(string parentFullPath)
         {
             var asset = target as GameplayTagAsset;
             if (asset.tagDefinitions == null) return false;
-            
-            var prefix = node.FullPath + ".";
-            return asset.tagDefinitions.Any(t => t.tagName.StartsWith(prefix));
+            var prefix = parentFullPath + ".";
+            return asset.tagDefinitions.Any(t => t != null && t.tagName.StartsWith(prefix));
         }
-
         private void ExpandCollapseAll(bool expand)
         {
-            var allNodes = BuildTagHierarchy();
-            ExpandCollapseRecursive(allNodes, expand);
+            if (_nodeBeingRenamed != null) CancelRename();
+            var currentRootTags = BuildTagHierarchy(); 
+            Action<List<TagNode>, bool> recursiveExpandCollapse = null;
+            recursiveExpandCollapse = (nodes, exp) => {
+                foreach(var n in nodes) {
+                    if (n.Children.Any()) expandedStates[n.FullPath] = exp;
+                    recursiveExpandCollapse(n.Children, exp);
+                }
+            };
+            recursiveExpandCollapse(currentRootTags, expand);
             RefreshTreeView();
         }
 
-        private void ExpandCollapseRecursive(List<TagNode> nodes, bool expand)
+        public class TagNode
         {
-            foreach (var node in nodes)
-            {
-                expandedStates[node.FullPath] = expand;
-                ExpandCollapseRecursive(node.Children, expand);
-            }
-        }
-
-        private class TagNode
-        {
-            public string TagName { get; set; }
+            public string TagName { get; set; } 
             public string FullPath { get; set; }
-            public GameplayTagData TagData { get; set; }
+            public GameplayTagData TagData { get; set; } 
             public TagNode Parent { get; set; }
             public List<TagNode> Children { get; set; } = new List<TagNode>();
         }
