@@ -1,0 +1,154 @@
+/* GameplayTagAssetEditor.uss */
+
+.tree-item-row {
+    flex-direction: row;
+    align-items: center; /* Vertically align items in the row */
+    margin-top: 1px;
+    margin-bottom: 1px;
+    min-height: 22px;
+}
+
+.tree-item-arrow-container {
+    width: 20px;
+    height: 20px;
+    justify-content: center; /* Center arrow horizontally */
+    align-items: center; /* Center arrow vertically */
+}
+
+.tree-item-arrow {
+    font-size: 11px;
+    color: #aaaaaa;
+    -unity-text-align: middle-center;
+    margin-right: 4px; /* Space between arrow and tag name */
+    min-width: 10px; /* Ensure it takes some space even if empty initially */
+}
+
+.tree-item-tag-container:hover > .tree-item-arrow { /* If arrow is direct child */
+    color: #ffffff;
+}
+
+.tree-item-tag-name {
+    flex-grow: 1; /* Allow it to take space */
+    color: #dddddd;
+    -unity-font-style: normal;
+    -unity-text-align: middle-left;
+    /* Add some padding or min-height if needed for clickability */
+    padding-top: 2px;
+    padding-bottom: 2px;
+}
+
+.tree-item-tag-name-implicit {
+    color: #999999;
+    -unity-font-style: italic;
+}
+
+.tree-item-rename-field {
+    flex-grow: 1; /* Take same space as label */
+    height: 18px; /* Match typical text field height in editor */
+    font-size: 11px; /* Match editor font size */
+    margin-right: 5px; /* Space before actions container would appear */
+    /* Unity's default TextField styling should be mostly okay here */
+}
+
+.tree-item-rename-field TextInput { /* Target the actual input element */
+    padding: 1px 2px; /* Adjust internal padding */
+}
+
+
+/* Ensure actions container is appropriately spaced */
+.tree-item-actions-container {
+    flex-direction: row;
+    margin-left: auto; /* Pushes actions to the right */
+    padding-left: 8px; /* Space from tag name/rename field */
+}
+
+/* Adjust .tree-item-tag-container if arrow makes it too crowded */
+.tree-item-tag-container {
+    flex-grow: 1;
+    flex-direction: row;
+    align-items: center;
+    background-color: rgba(80, 80, 80, 0.6);
+    border-radius: 3px;
+    padding: 1px 3px 1px 5px; /* Adjusted padding: top, right, bottom, left */
+    /* Left padding for arrow */
+}
+
+.tree-item-tag-container-implicit {
+    background-color: rgba(60, 60, 60, 0.4); /* Lighter/more transparent for implicit */
+}
+
+.tree-item-tag-container:hover {
+    background-color: rgba(95, 95, 95, 0.7);
+}
+
+.tree-item-tag-container-implicit:hover {
+    background-color: rgba(75, 75, 75, 0.5);
+}
+
+
+.tree-item-action-button {
+    width: 20px;
+    height: 18px;
+    margin-left: 2px;
+    font-size: 12px; /* Adjust for symbol clarity */
+    padding: 0;
+    border-radius: 2px;
+    -unity-text-align: middle-center;
+    color: #ffffff;
+    background-color: rgba(100, 100, 100, 0.8);
+    border-width: 0; /* Remove default button border */
+}
+
+.tree-item-action-button:hover {
+    background-color: rgba(120, 120, 120, 1);
+}
+
+.tree-item-action-button:active {
+    background-color: rgba(80, 80, 80, 1);
+}
+
+/* Specific button colors */
+.action-button-add {
+    background-color: rgba(76, 175, 80, 0.7); /* Greenish */
+}
+
+.action-button-add:hover {
+    background-color: rgba(76, 175, 80, 1);
+}
+
+.action-button-edit {
+    background-color: rgba(33, 150, 243, 0.7); /* Blueish */
+}
+
+.action-button-edit:hover {
+    background-color: rgba(33, 150, 243, 1);
+}
+
+.action-button-delete {
+    background-color: rgba(244, 67, 54, 0.7); /* Reddish */
+}
+
+.action-button-delete:hover {
+    background-color: rgba(244, 67, 54, 1);
+}
+
+.action-button-create {
+    background-color: rgba(0, 150, 136, 0.7); /* Tealish */
+}
+
+.action-button-create:hover {
+    background-color: rgba(0, 150, 136, 1);
+}
+
+
+.children-container {
+    /* No specific styles needed unless you want borders/background for the whole group */
+}
+
+.empty-state-label {
+    color: #888888;
+    font-size: 13px;
+    -unity-font-style: italic;
+    margin-top: 20px;
+    -unity-text-align: middle-center;
+}
