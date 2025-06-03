@@ -14,37 +14,20 @@ namespace GameplayTag.Editor
     /// </summary>
     public class AddTagWindow : EditorWindow
     {
+        private string _category = "";
+        private Color _debugColor = Color.white; // Default to white like EditTagWindow's potential default
+        private string _description = "";
+        private TextField _descriptionField; // Keep a reference if needed for keydown
+        private bool _isNetworked;
         private GameplayTagAssetEditor _parentEditor;
         private string _parentTagPath;
+        private Button _saveButton;
 
         private string _tagName = "";
-        private string _description = "";
-        private string _category = "";
-        private bool _isNetworked;
-        private Color _debugColor = Color.white; // Default to white like EditTagWindow's potential default
 
         // UI Elements
         private TextField _tagNameField;
-        private Button _saveButton;
         private Label _validationMessageLabel;
-        private TextField _descriptionField; // Keep a reference if needed for keydown
-
-        public static void ShowWindow(GameplayTagAssetEditor editor, string parentPath)
-        {
-            var wnd = GetWindow<AddTagWindow>(true); // true for utility, non-dockable
-            wnd.titleContent = new GUIContent("Add New Gameplay Tag");
-            wnd.minSize =
-                new Vector2(420, 320); // Adjusted to be similar to EditTagWindow, slightly taller for validation
-            wnd.maxSize = new Vector2(680, 450); // Allow some flexibility
-            wnd.Init(editor, parentPath);
-            wnd.ShowModalUtility(); // Modal behavior
-        }
-
-        private void Init(GameplayTagAssetEditor editor, string currentParentPath)
-        {
-            _parentEditor = editor;
-            _parentTagPath = currentParentPath;
-        }
 
         private void OnEnable()
         {
@@ -88,10 +71,7 @@ namespace GameplayTag.Editor
             root.Add(titleLabel);
 
             // Parent Path Display (styled like CreateReadOnlyField from EditTagWindow)
-            if (!string.IsNullOrEmpty(_parentTagPath))
-            {
-                CreateReadOnlyField("Parent Path", _parentTagPath, root);
-            }
+            if (!string.IsNullOrEmpty(_parentTagPath)) CreateReadOnlyField("Parent Path", _parentTagPath, root);
 
             // Tag Name Field
             _tagNameField = new TextField("Tag Name") // Removed colon for consistency with EditTagWindow PropertyFields
@@ -127,9 +107,7 @@ namespace GameplayTag.Editor
             _descriptionField.RegisterValueChangedCallback(evt => _description = evt.newValue);
             var descTextInputElement = _descriptionField.Q(TextField.textInputUssName); // Get the actual input element
             if (descTextInputElement != null)
-            {
                 descTextInputElement.style.minHeight = kDescMinHeight; // Apply minHeight to the input element itself
-            }
 
             root.Add(_descriptionField);
 
@@ -182,6 +160,23 @@ namespace GameplayTag.Editor
             root.schedule.Execute(() => _tagNameField.Focus()).StartingIn(50);
         }
 
+        public static void ShowWindow(GameplayTagAssetEditor editor, string parentPath)
+        {
+            var wnd = GetWindow<AddTagWindow>(true); // true for utility, non-dockable
+            wnd.titleContent = new GUIContent("Add New Gameplay Tag");
+            wnd.minSize =
+                new Vector2(420, 320); // Adjusted to be similar to EditTagWindow, slightly taller for validation
+            wnd.maxSize = new Vector2(680, 450); // Allow some flexibility
+            wnd.Init(editor, parentPath);
+            wnd.ShowModalUtility(); // Modal behavior
+        }
+
+        private void Init(GameplayTagAssetEditor editor, string currentParentPath)
+        {
+            _parentEditor = editor;
+            _parentTagPath = currentParentPath;
+        }
+
         private static void CreateReadOnlyField(string label, string value, VisualElement parent)
         {
             var box = new VisualElement
@@ -222,8 +217,7 @@ namespace GameplayTag.Editor
             }
 
             // Validate the current segment for allowed characters
-            if (!GameplayTagManager.Instance.IsValidTagName(currentTagNameSegment,
-                    false)) // false for segment validation
+            if (!GameplayTagManager.Instance.IsValidTagName(currentTagNameSegment)) // false for segment validation
             {
                 _validationMessageLabel.text = "Invalid characters in segment. Use A-Z, a-z, 0-9, _";
                 _saveButton.SetEnabled(false);

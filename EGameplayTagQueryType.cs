@@ -1,7 +1,7 @@
 namespace GameplayTag
 {
     /// <summary>
-    /// Query type enumeration
+    ///     Query type enumeration
     /// </summary>
     public enum EGameplayTagQueryType
     {

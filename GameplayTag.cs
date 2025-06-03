@@ -5,27 +5,30 @@ using UnityEngine;
 namespace GameplayTag
 {
     /// <summary>
-    /// Represents a hierarchical gameplay tag with parent-child relationships
+    ///     Represents a hierarchical gameplay tag with parent-child relationships
     /// </summary>
     [Serializable]
     public class GameplayTag : IEquatable<GameplayTag>
     {
         [SerializeField] private string tagName;
-        [NonSerialized] private GameplayTag parent;
         [NonSerialized] private List<GameplayTag> children;
         [NonSerialized] private int depth;
+        [NonSerialized] private GameplayTag parent;
 
         public GameplayTag(string name, GameplayTag parent = null)
         {
-            this.tagName = name;
+            tagName = name;
             this.parent = parent;
-            this.children = new List<GameplayTag>();
-            this.depth = parent != null ? parent.depth + 1 : 0;
-            
-            if (parent != null)
-            {
-                parent.children.Add(this);
-            }
+            children = new List<GameplayTag>();
+            depth = parent != null ? parent.depth + 1 : 0;
+
+            if (parent != null) parent.children.Add(this);
+        }
+
+        public bool Equals(GameplayTag other)
+        {
+            if (other == null) return false;
+            return GetFullTagName() == other.GetFullTagName();
         }
 
         public bool IsValid()
@@ -36,16 +39,16 @@ namespace GameplayTag
         public bool MatchesTag(GameplayTag other)
         {
             if (other == null) return false;
-            
+
             // Check if this tag is a parent of the other tag
-            GameplayTag current = other;
+            var current = other;
             while (current != null)
             {
                 if (current.Equals(this))
                     return true;
                 current = current.parent;
             }
-            
+
             return false;
         }
 
@@ -57,15 +60,15 @@ namespace GameplayTag
         public bool IsChildOf(GameplayTag parentTag)
         {
             if (parentTag == null) return false;
-            
-            GameplayTag current = this.parent;
+
+            var current = parent;
             while (current != null)
             {
                 if (current.Equals(parentTag))
                     return true;
                 current = current.parent;
             }
-            
+
             return false;
         }
 
@@ -78,7 +81,7 @@ namespace GameplayTag
         {
             if (parent == null || parent.tagName == "Root")
                 return tagName;
-            
+
             return parent.GetFullTagName() + "." + tagName;
         }
 
@@ -102,16 +105,9 @@ namespace GameplayTag
             return Equals(obj as GameplayTag);
         }
 
-        public bool Equals(GameplayTag other)
-        {
-            if (other == null) return false;
-            return GetFullTagName() == other.GetFullTagName();
-        }
-
         public override int GetHashCode()
         {
             return GetFullTagName().GetHashCode();
         }
     }
-
 }

@@ -1,7 +1,7 @@
 namespace GameplayTag
 {
     /// <summary>
-    /// Interface for objects that can have gameplay tags
+    ///     Interface for objects that can have gameplay tags
     /// </summary>
     public interface IGameplayTagInterface
     {
@@ -10,5 +10,4 @@ namespace GameplayTag
         bool HasAllMatchingGameplayTags(GameplayTagContainer tags);
         bool HasAnyMatchingGameplayTags(GameplayTagContainer tags);
     }
-
 }

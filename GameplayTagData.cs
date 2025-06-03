@@ -4,7 +4,7 @@ using UnityEngine;
 namespace GameplayTag
 {
     /// <summary>
-    /// Data structure for tag metadata
+    ///     Data structure for tag metadata
     /// </summary>
     [Serializable]
     public class GameplayTagData
@@ -15,5 +15,4 @@ namespace GameplayTag
         public bool isNetworked;
         public Color debugColor = Color.white;
     }
-
 }

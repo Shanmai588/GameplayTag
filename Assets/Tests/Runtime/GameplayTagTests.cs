@@ -1,9 +1,8 @@
-using UnityEngine;
-
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using NUnit.Framework;
-
+using UnityEngine;
 
 namespace GameplayTag
 {
@@ -14,21 +13,19 @@ namespace GameplayTag
         public void Setup()
         {
             // Reset the singleton instance before each test
-            var instanceField = typeof(GameplayTagManager).GetField("instance", 
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            var instanceField = typeof(GameplayTagManager).GetField("instance",
+                BindingFlags.NonPublic | BindingFlags.Static);
             instanceField?.SetValue(null, null);
-            
+
             // Initialize the manager
             GameplayTagManager.Instance.Initialize();
         }
-
-        #region GameplayTag Tests
 
         [Test]
         public void GameplayTag_Constructor_CreatesValidTag()
         {
             // Arrange & Act
-            var tag = new GameplayTag("TestTag", null);
+            var tag = new GameplayTag("TestTag");
 
             // Assert
             Assert.IsTrue(tag.IsValid());
@@ -42,7 +39,7 @@ namespace GameplayTag
         public void GameplayTag_HierarchicalCreation_CreatesCorrectStructure()
         {
             // Arrange & Act
-            var parentTag = new GameplayTag("Parent", null);
+            var parentTag = new GameplayTag("Parent");
             var childTag = new GameplayTag("Child", parentTag);
             var grandchildTag = new GameplayTag("Grandchild", childTag);
 
@@ -50,7 +47,7 @@ namespace GameplayTag
             Assert.AreEqual("Parent", parentTag.GetFullTagName());
             Assert.AreEqual("Parent.Child", childTag.GetFullTagName());
             Assert.AreEqual("Parent.Child.Grandchild", grandchildTag.GetFullTagName());
-            
+
             Assert.Contains(childTag, parentTag.GetChildren());
             Assert.Contains(grandchildTag, childTag.GetChildren());
             Assert.AreEqual(parentTag, childTag.GetParent());
@@ -61,7 +58,7 @@ namespace GameplayTag
         public void GameplayTag_MatchesTag_WithHierarchy()
         {
             // Arrange
-            var abilityTag = new GameplayTag("Ability", null);
+            var abilityTag = new GameplayTag("Ability");
             var fireTag = new GameplayTag("Fire", abilityTag);
             var projectileTag = new GameplayTag("Projectile", fireTag);
 
@@ -76,8 +73,8 @@ namespace GameplayTag
         public void GameplayTag_MatchesTagExact_OnlyExactMatches()
         {
             // Arrange
-            var tag1 = new GameplayTag("Ability", null);
-            var tag2 = new GameplayTag("Ability", null);
+            var tag1 = new GameplayTag("Ability");
+            var tag2 = new GameplayTag("Ability");
             var childTag = new GameplayTag("Fire", tag1);
 
             // Act & Assert
@@ -90,7 +87,7 @@ namespace GameplayTag
         public void GameplayTag_IsChildOf_CorrectlyIdentifiesRelationships()
         {
             // Arrange
-            var rootTag = new GameplayTag("Root", null);
+            var rootTag = new GameplayTag("Root");
             var abilityTag = new GameplayTag("Ability", rootTag);
             var fireTag = new GameplayTag("Fire", abilityTag);
             var waterTag = new GameplayTag("Water", abilityTag);
@@ -106,7 +103,7 @@ namespace GameplayTag
         public void GameplayTag_Equals_HandlesNullAndSameInstance()
         {
             // Arrange
-            var tag = new GameplayTag("Test", null);
+            var tag = new GameplayTag("Test");
             GameplayTag nullTag = null;
 
             // Act & Assert
@@ -128,10 +125,6 @@ namespace GameplayTag
             Assert.AreEqual(tag1.GetHashCode(), tag2.GetHashCode());
             Assert.AreNotEqual(tag1.GetHashCode(), tag3.GetHashCode());
         }
-
-        #endregion
-
-        #region GameplayTagContainer Tests
 
         [Test]
         public void GameplayTagContainer_AddTag_AddsTagAndParents()
@@ -273,10 +266,6 @@ namespace GameplayTag
             Assert.AreEqual(0, container.Count());
         }
 
-        #endregion
-
-        #region GameplayTagManager Tests
-
         [Test]
         public void GameplayTagManager_Singleton_ReturnsSameInstance()
         {
@@ -298,11 +287,11 @@ namespace GameplayTag
             Assert.IsNotNull(tag);
             Assert.AreEqual("Ability.Fire.Projectile", tag.GetFullTagName());
             Assert.AreEqual("Projectile", tag.GetTagName());
-            
+
             // Check hierarchy was created
             var fireTag = GameplayTagManager.Instance.RequestGameplayTag("Ability.Fire");
             var abilityTag = GameplayTagManager.Instance.RequestGameplayTag("Ability");
-            
+
             Assert.IsNotNull(fireTag);
             Assert.IsNotNull(abilityTag);
             Assert.AreEqual(fireTag, tag.GetParent());
@@ -328,7 +317,7 @@ namespace GameplayTag
             Assert.IsTrue(GameplayTagManager.Instance.IsValidTagName("Ability.Fire"));
             Assert.IsTrue(GameplayTagManager.Instance.IsValidTagName("Ability_Fire"));
             Assert.IsTrue(GameplayTagManager.Instance.IsValidTagName("Ability123"));
-            
+
             Assert.IsFalse(GameplayTagManager.Instance.IsValidTagName(""));
             Assert.IsFalse(GameplayTagManager.Instance.IsValidTagName(null));
             Assert.IsFalse(GameplayTagManager.Instance.IsValidTagName("123Ability")); // Starts with number
@@ -367,10 +356,6 @@ namespace GameplayTag
             Assert.IsTrue(registeredTags.Any(t => t.GetFullTagName() == "Test.Event"));
             Assert.IsTrue(registeredTags.Any(t => t.GetFullTagName() == "Test.Event.Tag"));
         }
-
-        #endregion
-
-        #region GameplayTagQuery Tests
 
         [Test]
         public void GameplayTagQuery_All_RequiresAllTagsAndBlocksBlockedTags()
@@ -519,10 +504,6 @@ namespace GameplayTag
             Assert.IsTrue(description.Contains("Status.Stunned"));
         }
 
-        #endregion
-
-        #region GameplayTagComponent Tests
-
         [Test]
         public void GameplayTagComponent_AddTag_FiresEvent()
         {
@@ -589,16 +570,12 @@ namespace GameplayTag
             GameObject.DestroyImmediate(gameObject);
         }
 
-        #endregion
-
-        #region GameplayTagAsset Tests
-
         [Test]
         public void GameplayTagAsset_GetTagNames_ReturnsValidTags()
         {
             // Arrange
             var asset = ScriptableObject.CreateInstance<GameplayTagAsset>();
-            asset.tagDefinitions = new GameplayTagData[]
+            asset.tagDefinitions = new[]
             {
                 new GameplayTagData { tagName = "Valid.Tag1" },
                 new GameplayTagData { tagName = "Valid.Tag2" },
@@ -617,16 +594,13 @@ namespace GameplayTag
             // Cleanup
             ScriptableObject.DestroyImmediate(asset);
         }
-        #endregion
-
-        #region Edge Cases and Error Handling
 
         [Test]
         public void GameplayTag_HandlesEmptyAndNullNames()
         {
             // Arrange & Act
-            var emptyTag = new GameplayTag("", null);
-            var nullNameTag = new GameplayTag(null, null);
+            var emptyTag = new GameplayTag("");
+            var nullNameTag = new GameplayTag(null);
 
             // Assert
             Assert.IsFalse(emptyTag.IsValid());
@@ -696,14 +670,11 @@ namespace GameplayTag
             // Verify no circular references
             Assert.AreNotEqual(tag1, tag3.GetParent());
             Assert.AreNotEqual(tag3, tag1.GetParent());
-            
+
             // Verify correct hierarchy
             Assert.AreEqual("Circle.A", tag1.GetFullTagName());
             Assert.AreEqual("Circle.A.B", tag2.GetFullTagName());
             Assert.AreEqual("Circle.A.B.C", tag3.GetFullTagName());
         }
-
-        #endregion
     }
 }
-

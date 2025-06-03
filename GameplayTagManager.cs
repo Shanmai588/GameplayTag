@@ -1,49 +1,45 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.RegularExpressions; // Added for Regex
+using System.Text.RegularExpressions;
 using UnityEngine;
+// Added for Regex
 
 namespace GameplayTag
 {
     /// <summary>
-    /// Singleton manager for all gameplay tags in the project
+    ///     Singleton manager for all gameplay tags in the project
     /// </summary>
     public class GameplayTagManager
     {
         private static GameplayTagManager instance;
-        private Dictionary<string, GameplayTag> tagMap;
         private GameplayTag rootTag;
-        private bool isInitialized;
+        private readonly Dictionary<string, GameplayTag> tagMap;
 
-        public bool IsInitialized => isInitialized; // Using expression-bodied property
+        private GameplayTagManager()
+        {
+            tagMap = new Dictionary<string, GameplayTag>();
+            IsInitialized = false;
+            // rootTag should be initialized in Initialize() to ensure clean state if Initialize() is called multiple times.
+        }
+
+        public bool IsInitialized { get; private set; }
 
         public static GameplayTagManager Instance
         {
             get
             {
-                if (instance == null)
-                {
-                    instance = new GameplayTagManager();
-                    // Consider if Initialize() should be called here or explicitly by game setup.
-                }
-
+                if (instance == null) instance = new GameplayTagManager();
+                // Consider if Initialize() should be called here or explicitly by game setup.
                 return instance;
             }
         }
 
         public event Action<GameplayTag> OnTagRegistered;
 
-        private GameplayTagManager()
-        {
-            tagMap = new Dictionary<string, GameplayTag>();
-            isInitialized = false;
-            // rootTag should be initialized in Initialize() to ensure clean state if Initialize() is called multiple times.
-        }
-
         public void Initialize()
         {
-            if (isInitialized) return;
+            if (IsInitialized) return;
 
             // Clear existing tags if re-initializing, though typically Initialize is called once.
             tagMap.Clear();
@@ -53,22 +49,19 @@ namespace GameplayTag
             // If "Root" is a reserved name not meant to be user-creatable via assets, that's fine.
             // For simplicity, let's assume "Root" is an internal concept.
 
-            isInitialized = true; // Set true after basic setup
+            IsInitialized = true; // Set true after basic setup
 
             // Load all GameplayTagAssets from Resources
             // Ensure the path "Resources/GameplayTags" is where your assets are.
             var assets = Resources.LoadAll<GameplayTagAsset>("GameplayTags");
-            foreach (var asset in assets)
-            {
-                LoadTagsFromAsset(asset);
-            }
+            foreach (var asset in assets) LoadTagsFromAsset(asset);
 
             Debug.Log($"GameplayTagManager initialized with {tagMap.Count} tags from {assets.Length} assets.");
         }
 
         public GameplayTag RequestGameplayTag(string tagName)
         {
-            if (!isInitialized)
+            if (!IsInitialized)
             {
                 Debug.LogWarning("GameplayTagManager accessed before Initialize. Attempting to initialize now.");
                 Initialize(); // Auto-initialize if not ready, common for singletons.
@@ -80,10 +73,7 @@ namespace GameplayTag
                 return null;
             }
 
-            if (tagMap.TryGetValue(tagName, out GameplayTag existingTag))
-            {
-                return existingTag;
-            }
+            if (tagMap.TryGetValue(tagName, out var existingTag)) return existingTag;
 
             // If the tag is not in the map, and it's a valid name,
             // this implies it wasn't defined in any asset but is being requested.
@@ -96,7 +86,7 @@ namespace GameplayTag
 
         public GameplayTag CreateGameplayTag(string tagName)
         {
-            if (!isInitialized) Initialize(); // Ensure manager is ready
+            if (!IsInitialized) Initialize(); // Ensure manager is ready
 
             // Validate the full tag name structure first.
             // The IsValidTagName used by AddTagWindow is for UI validation.
@@ -107,21 +97,18 @@ namespace GameplayTag
                 return null;
             }
 
-            if (tagMap.TryGetValue(tagName, out GameplayTag existingTag))
-            {
-                return existingTag; // Already exists
-            }
+            if (tagMap.TryGetValue(tagName, out var existingTag)) return existingTag; // Already exists
 
-            string[] parts = tagName.Split('.');
-            GameplayTag parent = rootTag; // Assume rootTag is non-null after Initialize()
-            string currentPath = "";
+            var parts = tagName.Split('.');
+            var parent = rootTag; // Assume rootTag is non-null after Initialize()
+            var currentPath = "";
 
-            for (int i = 0; i < parts.Length; i++)
+            for (var i = 0; i < parts.Length; i++)
             {
                 // Reconstruct path carefully to match dictionary keys
                 currentPath = string.IsNullOrEmpty(currentPath) ? parts[i] : $"{currentPath}.{parts[i]}";
 
-                if (!tagMap.TryGetValue(currentPath, out GameplayTag currentTag))
+                if (!tagMap.TryGetValue(currentPath, out var currentTag))
                 {
                     // Ensure parent is valid. If rootTag was null, this could fail.
                     if (parent == null && currentPath != "Root")
@@ -145,9 +132,9 @@ namespace GameplayTag
         }
 
         /// <summary>
-        /// Validates a tag name segment or a full tag path.
-        /// A segment is a single part of a tag (e.g., "Player", "Ability").
-        /// A full path can be hierarchical (e.g., "Player.Ability.Jump").
+        ///     Validates a tag name segment or a full tag path.
+        ///     A segment is a single part of a tag (e.g., "Player", "Ability").
+        ///     A full path can be hierarchical (e.g., "Player.Ability.Jump").
         /// </summary>
         /// <param name="name">The tag name or segment to validate.</param>
         /// <param name="isFullPath">True if 'name' should be validated as a full path, false for a segment.</param>
@@ -174,20 +161,18 @@ namespace GameplayTag
                 // IsValidTagNameSegment will handle whitespace within a segment.
                 return segments.All(IsValidTagNameSegment);
             }
-            else
-            {
-                // Rules for a single segment:
-                // 1. Must not contain any dots.
-                // 2. Must adhere to segment character rules (e.g., starts with letter, then alphanumeric/underscore).
-                if (name.Contains(".")) return false; // Segments cannot contain dots
-                return IsValidTagNameSegment(name);
-            }
+
+            // Rules for a single segment:
+            // 1. Must not contain any dots.
+            // 2. Must adhere to segment character rules (e.g., starts with letter, then alphanumeric/underscore).
+            if (name.Contains(".")) return false; // Segments cannot contain dots
+            return IsValidTagNameSegment(name);
         }
 
         /// <summary>
-        /// Validates a single segment of a gameplay tag.
-        /// Segments must start with a letter and be followed by letters, numbers, or underscores.
-        /// They cannot contain dots or be empty/whitespace.
+        ///     Validates a single segment of a gameplay tag.
+        ///     Segments must start with a letter and be followed by letters, numbers, or underscores.
+        ///     They cannot contain dots or be empty/whitespace.
         /// </summary>
         private bool IsValidTagNameSegment(string segment)
         {
@@ -201,54 +186,42 @@ namespace GameplayTag
 
         public GameplayTag[] GetAllTags()
         {
-            if (!isInitialized) Initialize();
+            if (!IsInitialized) Initialize();
             // Exclude the internal rootTag if it's not meant to be a user-facing tag.
             // Assuming GameplayTag class has a GetTagName() or similar method.
             // If rootTag is in tagMap and named "Root", this would filter it.
-            return tagMap.Values.Where(t => t.GetTagName() != "Root").ToArray(); // Assuming GameplayTag has a 'Name' property
+            return tagMap.Values.Where(t => t.GetTagName() != "Root")
+                .ToArray(); // Assuming GameplayTag has a 'Name' property
         }
 
         public GameplayTag[] GetChildTags(GameplayTag parent)
         {
-            if (!isInitialized) Initialize();
+            if (!IsInitialized) Initialize();
             if (parent == null) return Array.Empty<GameplayTag>(); // Use Array.Empty for .NET Standard 2.1+
 
-            // This depends on how GameplayTag stores children.
-            // The provided code had parent.GetChildren().ToArray().
-            // Let's assume that method exists on your GameplayTag class.
-            // If not, you'd query the tagMap:
-            // string parentPrefix = parent.GetFullName() + "."; // Assuming GetFullName()
-            // return tagMap.Values.Where(t => t.GetFullName().StartsWith(parentPrefix) && t.GetFullName().Split('.').Length == parent.GetFullName().Split('.').Length + 1).ToArray();
-            return parent.GetChildren().ToArray(); // Assuming this method exists
+            return parent.GetChildren().ToArray();
         }
 
         public void LoadTagsFromAsset(GameplayTagAsset asset)
         {
-            if (!isInitialized)
-            {
+            if (!IsInitialized)
                 // This might be problematic if called before Initialize sets up rootTag.
                 // However, Initialize calls this, so it should be fine in that flow.
                 // If called externally, ensure Initialize() ran first.
                 Debug.LogWarning(
                     "LoadTagsFromAsset called before GameplayTagManager was fully initialized. This might lead to issues if rootTag is not set.");
-                // Initialize(); // Or ensure Initialize() is robust enough to be called, or simply return.
-            }
 
             if (asset == null || asset.tagDefinitions == null)
             {
-                Debug.LogWarning($"Attempted to load tags from a null asset or asset with no definitions.");
+                Debug.LogWarning("Attempted to load tags from a null asset or asset with no definitions.");
                 return;
             }
 
             foreach (var tagData in asset.tagDefinitions)
-            {
                 if (tagData != null && !string.IsNullOrEmpty(tagData.tagName))
-                {
                     // CreateGameplayTag will handle hierarchical creation and add to tagMap.
                     // It also performs validation.
                     CreateGameplayTag(tagData.tagName);
-                }
-            }
         }
     }
 }
