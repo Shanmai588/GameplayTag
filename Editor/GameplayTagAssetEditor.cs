@@ -365,16 +365,14 @@ namespace GameplayTag.Editor
 
         private void ShowAddTagWindow(string parentPath)
         {
-            var window = EditorWindow.GetWindow<AddEditTagWindow>(true, "Add New Tag", true);
-            window.Initialize(this, null, parentPath);
+            var window = EditorWindow.GetWindow<AddTagWindow>(true, "Add New Tag", true);
+            window.Initialize(this, parentPath);
             window.ShowModal();
         }
 
         private void ShowEditTagWindow(TagNode node)
         {
-            var window = EditorWindow.GetWindow<AddEditTagWindow>(true, "Edit Tag", true);
-            window.Initialize(this, node.TagData, node.FullPath);
-            window.ShowModal();
+            EditTagWindow.ShowWindow(this, node.TagData);
         }
 
         private void CreateTagAtPath(string path)
@@ -402,21 +400,99 @@ namespace GameplayTag.Editor
 
         private void DeleteTag(TagNode node)
         {
-            if (EditorUtility.DisplayDialog("Delete Tag", 
-                $"Are you sure you want to delete the tag '{node.FullPath}'?", 
-                "Delete", "Cancel"))
+            // Check if this tag has children
+            bool hasChildren = HasChildTags(node);
+            
+            if (hasChildren)
             {
-                serializedObject.Update();
+                // Show options dialog
+                int option = EditorUtility.DisplayDialogComplex(
+                    "Delete Parent Tag",
+                    $"The tag '{node.FullPath}' has child tags. What would you like to do?",
+                    "Delete All", // Option 0
+                    "Cancel",     // Option 1
+                    "Move Children Up" // Option 2
+                );
                 
+                if (option == 1) // Cancel
+                    return;
+                
+                serializedObject.Update();
                 var asset = target as GameplayTagAsset;
                 var list = new List<GameplayTagData>(asset.tagDefinitions);
-                list.RemoveAll(t => t == node.TagData);
-                asset.tagDefinitions = list.ToArray();
                 
+                if (option == 0) // Delete all
+                {
+                    // Remove this tag and all children
+                    list.RemoveAll(t => t.tagName == node.FullPath || t.tagName.StartsWith(node.FullPath + "."));
+                }
+                else if (option == 2) // Move children up
+                {
+                    // First, update all child tags to remove this level
+                    var tagToRemove = node.FullPath + ".";
+                    var parentPrefix = "";
+                    
+                    // Determine the new parent prefix
+                    var lastDot = node.FullPath.LastIndexOf('.');
+                    if (lastDot > 0)
+                    {
+                        parentPrefix = node.FullPath.Substring(0, lastDot) + ".";
+                    }
+                    
+                    // Update child tags
+                    foreach (var tag in list)
+                    {
+                        if (tag.tagName.StartsWith(tagToRemove))
+                        {
+                            // Remove the deleted tag level from the path
+                            var remainingPath = tag.tagName.Substring(tagToRemove.Length);
+                            tag.tagName = parentPrefix + remainingPath;
+                            
+                            // If we're at root level, just use the remaining path
+                            if (string.IsNullOrEmpty(parentPrefix))
+                            {
+                                tag.tagName = remainingPath;
+                            }
+                        }
+                    }
+                    
+                    // Then remove the parent tag
+                    list.RemoveAll(t => t.tagName == node.FullPath);
+                }
+                
+                asset.tagDefinitions = list.ToArray();
                 EditorUtility.SetDirty(target);
                 serializedObject.ApplyModifiedProperties();
                 RefreshTreeView();
             }
+            else
+            {
+                // Simple delete for leaf tags
+                if (EditorUtility.DisplayDialog("Delete Tag", 
+                    $"Are you sure you want to delete the tag '{node.FullPath}'?", 
+                    "Delete", "Cancel"))
+                {
+                    serializedObject.Update();
+                    
+                    var asset = target as GameplayTagAsset;
+                    var list = new List<GameplayTagData>(asset.tagDefinitions);
+                    list.RemoveAll(t => t == node.TagData);
+                    asset.tagDefinitions = list.ToArray();
+                    
+                    EditorUtility.SetDirty(target);
+                    serializedObject.ApplyModifiedProperties();
+                    RefreshTreeView();
+                }
+            }
+        }
+        
+        private bool HasChildTags(TagNode node)
+        {
+            var asset = target as GameplayTagAsset;
+            if (asset.tagDefinitions == null) return false;
+            
+            var prefix = node.FullPath + ".";
+            return asset.tagDefinitions.Any(t => t.tagName.StartsWith(prefix));
         }
 
         private void ExpandCollapseAll(bool expand)
@@ -442,180 +518,6 @@ namespace GameplayTag.Editor
             public GameplayTagData TagData { get; set; }
             public TagNode Parent { get; set; }
             public List<TagNode> Children { get; set; } = new List<TagNode>();
-        }
-    }
-
-    /// <summary>
-    /// Window for adding or editing tags
-    /// </summary>
-    public class AddEditTagWindow : EditorWindow
-    {
-        private GameplayTagAssetEditor parentEditor;
-        private GameplayTagData editingData;
-        private string parentPath;
-        private bool isEditing;
-        
-        private string tagName = "";
-        private string description = "";
-        private string category = "";
-        private bool isNetworked = false;
-        private Color debugColor = Color.white;
-
-        public void Initialize(GameplayTagAssetEditor editor, GameplayTagData existingData, string parent)
-        {
-            parentEditor = editor;
-            editingData = existingData;
-            parentPath = parent;
-            isEditing = existingData != null;
-            
-            if (isEditing)
-            {
-                // Extract just the tag name without parent path
-                var lastDot = existingData.tagName.LastIndexOf('.');
-                tagName = lastDot >= 0 ? existingData.tagName.Substring(lastDot + 1) : existingData.tagName;
-                description = existingData.description;
-                category = existingData.category;
-                isNetworked = existingData.isNetworked;
-                debugColor = existingData.debugColor;
-            }
-            
-            minSize = new Vector2(400, 250);
-            maxSize = new Vector2(400, 250);
-        }
-
-        private void CreateGUI()
-        {
-            var root = rootVisualElement;
-            root.style.paddingLeft = 10;
-            root.style.paddingRight = 10;
-            root.style.paddingTop = 10;
-            root.style.paddingBottom = 10;
-            
-            var titleLabel = new Label(isEditing ? "Edit Gameplay Tag" : "Add New Gameplay Tag");
-            titleLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
-            titleLabel.style.fontSize = 14;
-            titleLabel.style.marginBottom = 10;
-            root.Add(titleLabel);
-            
-            if (!string.IsNullOrEmpty(parentPath))
-            {
-                var parentLabel = new Label($"Parent: {parentPath}");
-                parentLabel.style.color = new Color(0.7f, 0.7f, 0.7f);
-                parentLabel.style.marginBottom = 5;
-                root.Add(parentLabel);
-            }
-            
-            // Tag name field
-            var nameField = new TextField("Tag Name:");
-            nameField.value = tagName;
-            nameField.RegisterValueChangedCallback(evt => tagName = evt.newValue);
-            if (isEditing) nameField.SetEnabled(false);
-            root.Add(nameField);
-            
-            // Description field
-            var descField = new TextField("Description:");
-            descField.value = description;
-            descField.multiline = true;
-            descField.style.height = 50;
-            descField.RegisterValueChangedCallback(evt => description = evt.newValue);
-            root.Add(descField);
-            
-            // Category field
-            var categoryField = new TextField("Category:");
-            categoryField.value = category;
-            categoryField.RegisterValueChangedCallback(evt => category = evt.newValue);
-            root.Add(categoryField);
-            
-            // Networked toggle
-            var networkToggle = new Toggle("Is Networked");
-            networkToggle.value = isNetworked;
-            networkToggle.RegisterValueChangedCallback(evt => isNetworked = evt.newValue);
-            root.Add(networkToggle);
-            
-            // Color field
-            var colorField = new ColorField("Debug Color:");
-            colorField.value = debugColor;
-            colorField.RegisterValueChangedCallback(evt => debugColor = evt.newValue);
-            root.Add(colorField);
-            
-            // Buttons
-            var buttonContainer = new VisualElement();
-            buttonContainer.style.flexDirection = FlexDirection.Row;
-            buttonContainer.style.marginTop = 20;
-            buttonContainer.style.justifyContent = Justify.Center;
-            
-            var saveButton = new Button(() => SaveTag()) { text = isEditing ? "Save" : "Add" };
-            saveButton.style.width = 100;
-            saveButton.style.marginRight = 10;
-            buttonContainer.Add(saveButton);
-            
-            var cancelButton = new Button(() => Close()) { text = "Cancel" };
-            cancelButton.style.width = 100;
-            buttonContainer.Add(cancelButton);
-            
-            root.Add(buttonContainer);
-        }
-
-        private void SaveTag()
-        {
-            if (!isEditing && string.IsNullOrEmpty(tagName))
-            {
-                EditorUtility.DisplayDialog("Invalid Tag Name", "Please enter a tag name.", "OK");
-                return;
-            }
-            
-            var fullTagName = string.IsNullOrEmpty(parentPath) ? tagName : $"{parentPath}.{tagName}";
-            
-            if (!isEditing && !GameplayTagManager.Instance.IsValidTagName(fullTagName))
-            {
-                EditorUtility.DisplayDialog("Invalid Tag Name", 
-                    "Tag name contains invalid characters. Use only letters, numbers, dots, and underscores.", "OK");
-                return;
-            }
-            
-            var serializedObject = parentEditor.serializedObject;
-            serializedObject.Update();
-            
-            if (isEditing)
-            {
-                // Update existing tag
-                editingData.description = description;
-                editingData.category = category;
-                editingData.isNetworked = isNetworked;
-                editingData.debugColor = debugColor;
-            }
-            else
-            {
-                // Add new tag
-                var asset = parentEditor.target as GameplayTagAsset;
-                var newTag = new GameplayTagData
-                {
-                    tagName = fullTagName,
-                    description = description,
-                    category = category,
-                    isNetworked = isNetworked,
-                    debugColor = debugColor
-                };
-                
-                var list = new List<GameplayTagData>(asset.tagDefinitions ?? new GameplayTagData[0]);
-                
-                // Check if tag already exists
-                if (list.Any(t => t.tagName == fullTagName))
-                {
-                    EditorUtility.DisplayDialog("Tag Already Exists", 
-                        $"A tag with the name '{fullTagName}' already exists.", "OK");
-                    return;
-                }
-                
-                list.Add(newTag);
-                asset.tagDefinitions = list.ToArray();
-            }
-            
-            EditorUtility.SetDirty(parentEditor.target);
-            serializedObject.ApplyModifiedProperties();
-            parentEditor.RefreshTreeView();
-            
-            Close();
         }
     }
 }
