@@ -314,7 +314,7 @@ namespace GameplayTag
         {
             // Act & Assert
             Assert.IsTrue(GameplayTagManager.Instance.IsValidTagName("Ability"));
-            Assert.IsTrue(GameplayTagManager.Instance.IsValidTagName("Ability.Fire"));
+            Assert.IsTrue(GameplayTagManager.Instance.IsValidTagName("Ability.Fire", true));
             Assert.IsTrue(GameplayTagManager.Instance.IsValidTagName("Ability_Fire"));
             Assert.IsTrue(GameplayTagManager.Instance.IsValidTagName("Ability123"));
 

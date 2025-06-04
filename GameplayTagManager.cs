@@ -93,7 +93,7 @@ namespace GameplayTag
             // Here, we ensure the name makes sense for the runtime map.
             if (!IsValidTagName(tagName, true)) // Assume tagName here is a full path
             {
-                Debug.LogError($"Attempted to create GameplayTag with invalid name: {tagName}");
+                Debug.LogWarning($"Attempted to create GameplayTag with invalid name: {tagName}");
                 return null;
             }
 
