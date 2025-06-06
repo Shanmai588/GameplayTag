@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using UnityEngine;
+
 // Added for Regex
 
 namespace GameplayTag
@@ -13,8 +14,8 @@ namespace GameplayTag
     public class GameplayTagManager
     {
         private static GameplayTagManager instance;
-        private GameplayTag rootTag;
         private readonly Dictionary<string, GameplayTag> tagMap;
+        private GameplayTag rootTag;
 
         private GameplayTagManager()
         {
@@ -139,10 +140,7 @@ namespace GameplayTag
         /// <param name="name">The tag name or segment to validate.</param>
         /// <param name="isFullPath">True if 'name' should be validated as a full path, false for a segment.</param>
         /// <returns>True if valid, false otherwise.</returns>
-        public bool
-            IsValidTagName(string name,
-                bool isFullPath =
-                    false) // Default isFullPath to false for backward compatibility if only one arg is passed elsewhere
+        public bool IsValidTagName(string name, bool isFullPath = false)
         {
             if (string.IsNullOrWhiteSpace(name)) return false;
 
