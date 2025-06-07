@@ -6,7 +6,7 @@ namespace GameplayTag
     /// <summary>
     ///     Component for GameObjects to hold gameplay tags
     /// </summary>
-    public class GameplayTagComponent : MonoBehaviour, IGameplayTagInterface
+    public class GameplayTagComponent : MonoBehaviour, IGameplayTagOwner
     {
         [SerializeField] private GameplayTagContainer tagContainer;
         [SerializeField] private string[] initialTagNames; // Store as strings for serialization

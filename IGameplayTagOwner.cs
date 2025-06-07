@@ -3,7 +3,7 @@ namespace GameplayTag
     /// <summary>
     ///     Interface for objects that can have gameplay tags
     /// </summary>
-    public interface IGameplayTagInterface
+    public interface IGameplayTagOwner
     {
         GameplayTagContainer GetOwnedGameplayTags();
         bool HasMatchingGameplayTag(GameplayTag tag);

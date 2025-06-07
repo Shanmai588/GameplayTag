@@ -559,7 +559,7 @@ namespace GameplayTag
             component.AddTag(testTag);
 
             // Act
-            var tagInterface = component as IGameplayTagInterface;
+            var tagInterface = component as IGameplayTagOwner;
 
             // Assert
             Assert.IsNotNull(tagInterface);
